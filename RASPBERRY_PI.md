@@ -6,6 +6,22 @@ Quick guide to get Tramintel running on your Raspberry Pi.
 
 Install Node.js and pnpm:
 
+### For Fedora/RHEL-based systems:
+
+```bash
+# Install Node.js (v18 or higher)
+sudo dnf install nodejs
+
+# Or use NodeSource for latest version:
+curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo dnf install nodejs
+
+# Install pnpm
+npm install -g pnpm
+```
+
+### For Debian/Raspbian:
+
 ```bash
 # Install Node.js (v18 or higher)
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -87,6 +103,12 @@ X-GNOME-Autostart-enabled=true
 
 ## Optional: Hide Cursor
 
+**Fedora:**
+```bash
+sudo dnf install unclutter-xfixes
+```
+
+**Debian/Raspbian:**
 ```bash
 sudo apt-get install unclutter
 ```
