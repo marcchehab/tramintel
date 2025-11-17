@@ -1,0 +1,23 @@
+{
+  "name": "tramintel",
+  "version": "1.0.0",
+  "description": "Real-time tram departures for Zurich stops",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "zurich",
+    "zvv",
+    "tram",
+    "public-transport"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "gtfs-realtime-bindings": "^1.1.1"
+  }
+}

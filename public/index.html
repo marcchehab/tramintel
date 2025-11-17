@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tramintel - Zurich Tram Departures</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="currentTime">--:--</h1>
+            <div class="last-update">Last updated: <span id="lastUpdate">-</span></div>
+        </header>
+
+        <main>
+            <div class="stops-container">
+                <!-- Roswiesen Stop -->
+                <section class="stop-section">
+                    <div class="stop-header">
+                        <div class="line-badge line-7">7</div>
+                        <h2>Roswiesen</h2>
+                    </div>
+                    <div id="roswiesen-departures" class="departures-list">
+                        <div class="loading">Loading departures...</div>
+                    </div>
+                </section>
+
+                <!-- Heerenwiesen Stop -->
+                <section class="stop-section">
+                    <div class="stop-header">
+                        <div class="line-badge line-9">9</div>
+                        <h2>Heerenwiesen</h2>
+                    </div>
+                    <div id="heerenwiesen-departures" class="departures-list">
+                        <div class="loading">Loading departures...</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <footer>
+            <p>Data provided by <a href="https://transport.opendata.ch" target="_blank">transport.opendata.ch</a></p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
