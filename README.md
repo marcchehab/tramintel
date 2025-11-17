@@ -2,6 +2,8 @@
 
 Real-time Zurich tram departure board for Raspberry Pi display.
 
+![Screenshot](screenshot.png)
+
 ## Features
 
 - **Real-time delays** from official GTFS-RT API
