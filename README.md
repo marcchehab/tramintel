@@ -1,6 +1,6 @@
 # Tramintel
 
-Real-time Zurich tram departure board for Raspberry Pi display.
+Real-time Zurich tram departure board for Raspberry Pi display. Almost 100% vibe-coded.
 
 ![Screenshot](screenshot.png)
 
