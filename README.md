@@ -33,6 +33,10 @@ Real-time Zurich tram departure board for Raspberry Pi display. Almost 100% vibe
 
 4. Open http://localhost:3000
 
+## Raspberry Pi Deployment
+
+See [RASPBERRY_PI.md](RASPBERRY_PI.md) for complete instructions on deploying to Raspberry Pi with auto-start and kiosk mode.
+
 ## Configuration
 
 Edit `server.js` to change stops and lines:
