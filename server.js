@@ -7,14 +7,35 @@ const GtfsRealtimeBindings = require('gtfs-realtime-bindings');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
+// Hot reloading setup for development
+if (isDevelopment) {
+  const livereload = require('livereload');
+  const connectLivereload = require('connect-livereload');
+
+  // Create livereload server
+  const liveReloadServer = livereload.createServer({
+    exts: ['html', 'css', 'js'],
+    delay: 500
+  });
+  liveReloadServer.watch(path.join(__dirname, 'public'));
+
+  // Inject livereload script into HTML
+  app.use(connectLivereload());
+
+  console.log('🔥 Hot reloading enabled for development');
+}
 
 // API Configuration
 // Get your own API key from https://api-manager.opentransportdata.swiss/
 const API_KEY = process.env.GTFS_API_KEY || 'eyJvcmciOiI2NDA2NTFhNTIyZmEwNTAwMDEyOWJiZTEiLCJpZCI6IjRhMjJjNDExZGMyMjRjNmFhODI3MTYxZmY1OTUwMzIzIiwiaCI6Im11cm11cjEyOCJ9';
 const GTFS_RT_URL = 'https://api.opentransportdata.swiss/la/gtfs-rt';
 
-// Serve static files from public directory
-app.use(express.static('public'));
+// Serve static files from public directory (but not index.html in dev mode)
+app.use(express.static('public', {
+  index: isDevelopment ? false : 'index.html'
+}));
 
 // Configuration for the tram stops
 // Using official GTFS stop IDs with platform suffixes from GTFS-RT feed
@@ -354,7 +375,21 @@ app.get('/api/departures', async (req, res) => {
 
 // Serve the main page
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  if (isDevelopment) {
+    const fs = require('fs');
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    fs.readFile(indexPath, 'utf8', (err, html) => {
+      if (err) {
+        return res.status(500).send('Error loading page');
+      }
+      // Inject livereload script
+      const modifiedHtml = html.replace('</body>',
+        '<script src="http://localhost:35729/livereload.js?snipver=1"></script></body>');
+      res.send(modifiedHtml);
+    });
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
 });
 
 app.listen(PORT, () => {
