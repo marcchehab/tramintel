@@ -173,15 +173,26 @@ function extractDepartures(feed, stopId, lineNumber, debugMode = false) {
       if (stopId && !stu.stopId.startsWith(stopId)) continue;
 
       const departure = stu.departure;
-      if (!departure || !departure.time) continue;
+      const arrival = stu.arrival;
 
-      const departureTime = Number(departure.time);
+      // Debug: Log what fields are available
+      if (debugMode && stopId && stu.stopId.startsWith(stopId) && departures.length < 3) {
+        console.log(`  Debug STU: stopId=${stu.stopId}, stopSeq=${stu.stopSequence}`);
+        console.log(`    departure:`, departure ? JSON.stringify(departure) : 'null');
+        console.log(`    arrival:`, arrival ? JSON.stringify(arrival) : 'null');
+      }
+
+      // GTFS-RT has departure.time OR we need to use arrival.time
+      const timeData = departure || arrival;
+      if (!timeData || !timeData.time) continue;
+
+      const departureTime = Number(timeData.time);
 
       // Only include future departures
       if (departureTime < now) continue;
 
       // Get delay in seconds (0 if not available)
-      const delaySeconds = departure.delay || 0;
+      const delaySeconds = timeData.delay || 0;
 
       departures.push({
         tripId: trip.tripId,
@@ -242,7 +253,9 @@ function fetchStationboard(stationName, lineNumber) {
             .map(dep => ({
               departure: dep.stop.departure,
               destination: dep.to,
-              operator: dep.operator
+              operator: dep.operator,
+              delay: (dep.stop.delay || 0) * 60, // Convert minutes to seconds
+              tripName: dep.name // Trip identifier from OpenData
             }));
           resolve(filtered);
         } catch (error) {
@@ -258,21 +271,22 @@ function fetchStationboard(stationName, lineNumber) {
 // Hybrid approach: Get schedules from transport.opendata.ch, overlay GTFS-RT delays
 async function getDeparturesWithRealTimeDelays(stopName, stopId, lineNumber, feed) {
   try {
-    // 1. Get scheduled departures from transport.opendata.ch (has schedule + stop names)
+    // 1. Get scheduled departures from transport.opendata.ch (has schedule + stop names + delays)
     const stationboard = await fetchStationboard(stopName, lineNumber);
 
-    // 2. If GTFS-RT feed is unavailable, return schedules with no delay info
+    // 2. If GTFS-RT feed is unavailable, return OpenData's own delay info
     if (!feed) {
       return stationboard.map(dep => ({
         time: dep.departure,
         destination: dep.destination,
-        delay: 0,
+        delay: dep.delay || 0, // OpenData provides delay in seconds
         line: lineNumber
       }));
     }
 
-    // 3. Build an array of GTFS-RT departures with their delays for this specific line
-    const gtfsRTDepartures = [];
+    // 3. Build a map of GTFS-RT trip IDs to delays at our specific stop
+    // GTFS-RT provides delays but NOT timestamps
+    const gtfsRTDelaysByTrip = new Map();
     for (const entity of feed.entity) {
       if (!entity.tripUpdate) continue;
 
@@ -286,35 +300,41 @@ async function getDeparturesWithRealTimeDelays(stopName, stopId, lineNumber, fee
 
       const stopTimeUpdates = entity.tripUpdate.stopTimeUpdate || [];
 
+      // Find the delay for our specific stop
       for (const stu of stopTimeUpdates) {
-        if (stu.stopId && stu.stopId.startsWith(stopId) && stu.departure && stu.departure.time) {
-          const delay = stu.departure.delay || 0;
-          const departureTime = Number(stu.departure.time);
+        if (stu.stopId && stu.stopId.startsWith(stopId)) {
+          // GTFS-RT only has delay, not absolute time
+          const delay = (stu.departure && stu.departure.delay) || (stu.arrival && stu.arrival.delay) || 0;
 
-          gtfsRTDepartures.push({
-            delay: delay,
-            departureTime: departureTime,
-            stopId: stu.stopId,
-            stopSequence: stu.stopSequence,
-            tripId: trip.tripId
-          });
+          // Store delay keyed by trip ID
+          if (trip.tripId) {
+            gtfsRTDelaysByTrip.set(trip.tripId, delay);
+          }
+          break; // Found our stop, move to next trip
         }
       }
     }
 
-    // Sort GTFS-RT departures by time
-    gtfsRTDepartures.sort((a, b) => a.departureTime - b.departureTime);
+    if (isDevelopment) {
+      console.log(`\n[${stopName}] Found ${stationboard.length} departures from OpenData, ${gtfsRTDelaysByTrip.size} trips with GTFS-RT delays`);
+    }
 
-    // 4. Combine: match transport.opendata.ch departures with GTFS-RT delays
-    // Match by finding the GTFS-RT entry closest in sequence for this line
+    // 4. Match OpenData departures with GTFS-RT delays
+    // PROBLEM: OpenData and GTFS-RT use incompatible trip identifiers
+    // FALLBACK: Use sequential matching (match by order) - this is approximate
+    const tripIdsArray = Array.from(gtfsRTDelaysByTrip.keys());
+
     const departures = stationboard.map((dep, index) => {
-      // Use index-based matching since we don't have trip IDs from transport.opendata.ch
-      // Assuming departures are in chronological order
+      // Sequential matching: match OpenData departure [i] with GTFS-RT trip [i]
+      // This assumes both feeds list trips in roughly the same order
       let matchedDelay = 0;
 
-      if (index < gtfsRTDepartures.length) {
-        // Use the delay from the corresponding index position
-        matchedDelay = gtfsRTDepartures[index].delay;
+      if (index < gtfsRTDelaysByTrip.size) {
+        matchedDelay = gtfsRTDelaysByTrip.get(tripIdsArray[index]);
+      }
+
+      if (isDevelopment && index < 5) {
+        console.log(`  [${index}] ${dep.destination} at ${new Date(dep.departure).toLocaleTimeString('de-CH')} → ${matchedDelay}s delay`);
       }
 
       return {
