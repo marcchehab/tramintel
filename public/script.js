@@ -1,3 +1,9 @@
+// Store current departures data
+let currentDepartures = {
+    roswiesen: [],
+    heerenwiesen: []
+};
+
 // Fetch and display departures
 async function fetchDepartures() {
     try {
@@ -7,6 +13,10 @@ async function fetchDepartures() {
         }
 
         const data = await response.json();
+
+        // Store the departure data
+        currentDepartures.roswiesen = data.roswiesen.departures;
+        currentDepartures.heerenwiesen = data.heerenwiesen.departures;
 
         // Update Roswiesen departures
         updateDeparturesList('roswiesen-departures', data.roswiesen.departures);
@@ -40,16 +50,16 @@ function updateDeparturesList(elementId, departures) {
 
         // Calculate actual departure time (scheduled + delay)
         const actualDate = new Date(scheduledDate.getTime() + (delaySeconds * 1000));
-        const minutesUntilActual = Math.floor((actualDate - new Date()) / 60000);
+        const msUntilActual = actualDate - new Date();
+        const minutesUntilActual = Math.floor(msUntilActual / 60000);
+        const secondsUntilActual = Math.floor((msUntilActual % 60000) / 1000);
 
-        // Format the big countdown
+        // Format the big countdown with minutes and seconds
         let countdown;
-        if (minutesUntilActual < 0) {
-            countdown = '--';
-        } else if (minutesUntilActual === 0) {
-            countdown = 'NOW';
+        if (msUntilActual < 0) {
+            countdown = '🤷';
         } else {
-            countdown = `${minutesUntilActual}'`;
+            countdown = `${minutesUntilActual}:${String(secondsUntilActual).padStart(2, '0')}`;
         }
 
         const countdownClass = minutesUntilActual <= 3 && minutesUntilActual >= 0 ? 'soon' : '';
@@ -79,7 +89,7 @@ function updateDeparturesList(elementId, departures) {
                     <div class="scheduled-time">${formatTime(scheduledDate)}</div>
                     <div class="delay-info ${delayClass}">${delayText}</div>
                 </div>
-                <div class="departure-countdown ${countdownClass}">
+                <div class="departure-countdown ${countdownClass}" data-departure-time="${actualDate.getTime()}">
                     ${countdown}
                 </div>
                 <div class="departure-destination">
@@ -116,6 +126,39 @@ function updateCurrentTime() {
     document.getElementById('currentTime').textContent = timeString;
 }
 
+// Update all countdown timers
+function updateCountdowns() {
+    const now = new Date().getTime();
+    const countdownElements = document.querySelectorAll('.departure-countdown');
+
+    countdownElements.forEach(element => {
+        const departureTime = parseInt(element.getAttribute('data-departure-time'));
+        if (!departureTime) return;
+
+        const msUntilActual = departureTime - now;
+        const minutesUntilActual = Math.floor(msUntilActual / 60000);
+        const secondsUntilActual = Math.floor((msUntilActual % 60000) / 1000);
+
+        // Update countdown display
+        let countdown;
+        if (msUntilActual < 0) {
+            countdown = '🤷';
+        } else {
+            countdown = `${minutesUntilActual}:${String(secondsUntilActual).padStart(2, '0')}`;
+        }
+
+        // Update the element
+        element.textContent = countdown;
+
+        // Update class for "soon" styling
+        if (minutesUntilActual <= 3 && minutesUntilActual >= 0) {
+            element.classList.add('soon');
+        } else {
+            element.classList.remove('soon');
+        }
+    });
+}
+
 // Initial fetch and time update
 fetchDepartures();
 updateCurrentTime();
@@ -123,5 +166,8 @@ updateCurrentTime();
 // Refresh every 30 seconds (stay within rate limits: 2 calls/min)
 setInterval(fetchDepartures, 30000);
 
-// Update current time every second
-setInterval(updateCurrentTime, 1000);
+// Update current time and countdowns every second
+setInterval(() => {
+    updateCurrentTime();
+    updateCountdowns();
+}, 1000);
