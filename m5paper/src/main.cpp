@@ -9,32 +9,74 @@ M5EPD_Canvas canvas(&M5.EPD);
 const char* ssid = "KGBshelter";
 const char* password = "Chasch3MalrataewassPasswortisch!";
 
-const char* roswiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Roswiesen&limit=8&transportations[]=tram";
-const char* heerenwiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Heerenwiesen&limit=8&transportations[]=tram";
+const char* roswiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Roswiesen&limit=6&transportations[]=tram";
+const char* heerenwiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Heerenwiesen&limit=6&transportations[]=tram";
 
 // Forward declarations
 void fetchAndDisplayTrams();
 void displayStation(const char* stationName, const char* url, int startX, int startY);
+bool connectWiFi();
+void displayBatteryLevel();
+
+bool connectWiFi() {
+    const int maxRetries = 3;
+    const int retryDelay = 3000; // 3 seconds between attempts
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+        canvas.fillCanvas(0);
+        canvas.setTextSize(3);
+        canvas.drawString("Connecting to WiFi... (attempt " + String(attempt) + "/3)", 20, 20);
+        canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
+
+        WiFi.begin(ssid, password);
+
+        int timeout = 0;
+        while (WiFi.status() != WL_CONNECTED && timeout < 20) { // 10 second timeout
+            delay(500);
+            timeout++;
+        }
+
+        if (WiFi.status() == WL_CONNECTED) {
+            return true;
+        }
+
+        if (attempt < maxRetries) {
+            canvas.drawString("Failed. Retrying in 3s...", 20, 60);
+            canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
+            delay(retryDelay);
+        }
+    }
+
+    return false; // Failed after all retries
+}
 
 void setup() {
     M5.begin();
     M5.EPD.SetRotation(0);  // 0 = landscape
     M5.EPD.Clear(true);
 
+    // Start serial for debugging (optional)
+    // Serial.begin(115200);
+
     canvas.createCanvas(960, 540);  // width x height for landscape
     canvas.setTextSize(3);
 
-    // Connect to WiFi
-    canvas.drawString("Connecting to WiFi...", 20, 20);
-    canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
-
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
+    // Connect to WiFi with retry logic
+    if (!connectWiFi()) {
+        // WiFi connection failed after retries
+        canvas.fillCanvas(0);
+        canvas.setTextSize(4);
+        canvas.drawString("WiFi Error", 300, 200);
+        canvas.drawString("Retrying in 60s...", 250, 250);
+        canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
+        delay(60000);
+        ESP.restart(); // Restart and try again
     }
 
-    canvas.drawString("Connected! Syncing time...", 20, 60);
-    canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
+    canvas.fillCanvas(0);
+    canvas.setTextSize(3);
+    canvas.drawString("Connected! Syncing time...", 20, 20);
+    canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
 
     // Configure NTP time sync (Zurich timezone)
     configTime(3600, 3600, "pool.ntp.org"); // UTC+1, DST+1
@@ -65,10 +107,12 @@ void displayStation(const char* stationName, const char* url, int startX, int st
     canvas.drawString(stationName, startX, startY);
 
     if (httpCode == 200) {
-        // Parse JSON directly from stream to save memory
-        WiFiClient* stream = http.getStreamPtr();
+        // Get payload as String
+        String payload = http.getString();
+
+        // Parse JSON - use c_str() to ensure proper null termination
         JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, *stream);
+        DeserializationError error = deserializeJson(doc, payload.c_str());
 
         if (!error) {
             JsonArray stationboard = doc["stationboard"];
@@ -94,6 +138,32 @@ void displayStation(const char* stationName, const char* url, int startX, int st
                 if (!stationboard[i]["stop"]["prognosis"].isNull() &&
                     stationboard[i]["stop"]["prognosis"]["departure"].isNull()) {
                     continue;
+                }
+
+                // Check if prognosis departure is in the past (cancelled indicator)
+                if (!stationboard[i]["stop"]["prognosis"].isNull()) {
+                    String progDeparture = stationboard[i]["stop"]["prognosis"]["departure"];
+                    if (!progDeparture.isEmpty()) {
+                        // Parse prognosis departure time
+                        int pYear = progDeparture.substring(0, 4).toInt();
+                        int pMonth = progDeparture.substring(5, 7).toInt();
+                        int pDay = progDeparture.substring(8, 10).toInt();
+                        int pHour = progDeparture.substring(11, 13).toInt();
+                        int pMin = progDeparture.substring(14, 16).toInt();
+
+                        struct tm pTimeinfo = {0};
+                        pTimeinfo.tm_year = pYear - 1900;
+                        pTimeinfo.tm_mon = pMonth - 1;
+                        pTimeinfo.tm_mday = pDay;
+                        pTimeinfo.tm_hour = pHour;
+                        pTimeinfo.tm_min = pMin;
+                        time_t progTime = mktime(&pTimeinfo);
+
+                        // Skip if prognosis is more than 5 minutes in the past (cancelled)
+                        if ((now - progTime) > 300) {  // 5 minutes = 300 seconds
+                            continue;
+                        }
+                    }
                 }
 
                 String category = stationboard[i]["category"];
@@ -128,6 +198,7 @@ void displayStation(const char* stationName, const char* url, int startX, int st
                 // Clean up destination names
                 line.replace("Zürich, ", "");
                 line.replace("Zuerich, ", "");
+                line.replace("Universitaet", "U. ");
                 if (line.indexOf(", Bahnhof") > 0) {
                     line = line.substring(0, line.indexOf(", Bahnhof"));
                 }
@@ -161,23 +232,23 @@ void displayStation(const char* stationName, const char* url, int startX, int st
                 }
             }
 
-            // Display first 6
+            // Display first 5
             int y = startY + 50;
-            for (int i = 0; i < 6 && i < depCount; i++) {
+            for (int i = 0; i < 5 && i < depCount; i++) {
                 String countdown = String(departures[i].minutesUntil) + "'";
                 if (departures[i].minutesUntil < 0) {
                     countdown = "--";
                 }
 
                 // Draw destination
-                canvas.setTextSize(3);
+                canvas.setTextSize(5);
                 canvas.drawString(departures[i].line, startX + 5, y);
 
                 // Draw countdown (right side of column)
-                canvas.setTextSize(4);
-                canvas.drawString(countdown, startX + 350, y - 3);
+                canvas.setTextSize(6);
+                canvas.drawString(countdown, startX + 350, y - 5);
 
-                y += 75;
+                y += 90;
             }
         } else {
             canvas.setTextSize(2);
@@ -191,14 +262,49 @@ void displayStation(const char* stationName, const char* url, int startX, int st
     http.end();
 }
 
+void displayBatteryLevel() {
+    // Get battery voltage (M5Paper uses ADC on GPIO 35)
+    uint32_t batteryVoltage = M5.getBatteryVoltage();
+
+    // Calculate battery percentage (rough estimate)
+    // M5Paper LiPo: 4.2V = 100%, 3.0V = 0%
+    int batteryPercent = map(batteryVoltage, 3000, 4200, 0, 100);
+    batteryPercent = constrain(batteryPercent, 0, 100);
+
+    // Draw battery icon and percentage in top right
+    int x = 850;  // Top right corner
+    int y = 10;
+
+    canvas.setTextSize(3);
+    String batteryText = String(batteryPercent) + "%";
+    canvas.drawString(batteryText, x, y);
+
+    // Draw simple battery icon
+    canvas.setTextSize(2);
+
+    // Battery outline (rectangle)
+    canvas.drawRect(x - 50, y, 40, 20, 15);
+    // Battery terminal (small rectangle on right)
+    canvas.fillRect(x - 10, y + 6, 5, 8, 15);
+
+    // Fill battery based on level
+    int fillWidth = map(batteryPercent, 0, 100, 0, 36);
+    if (fillWidth > 0) {
+        canvas.fillRect(x - 48, y + 2, fillWidth, 16, 15);
+    }
+}
+
 void fetchAndDisplayTrams() {
     canvas.fillCanvas(0); // Clear screen
+
+    // Display battery level in top right
+    displayBatteryLevel();
 
     // Display both stations side-by-side in two columns
     displayStation("T7 Roswiesen", roswiesenUrl, 10, 10);      // Left column
     displayStation("T9 Heerenwiesen", heerenwiesenUrl, 490, 10);  // Right column
 
-    canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
+    canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
 }
 
 void loop() {
