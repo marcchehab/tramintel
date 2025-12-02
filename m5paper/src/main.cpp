@@ -12,11 +12,18 @@ const char* password = "Chasch3MalrataewassPasswortisch!";
 const char* roswiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Roswiesen&limit=6&transportations[]=tram";
 const char* heerenwiesenUrl = "https://transport.opendata.ch/v1/stationboard?station=Heerenwiesen&limit=6&transportations[]=tram";
 
+// Touch timeout configuration
+// 15 * 60 * 1000; // 15 minutes
+const unsigned long SLEEP_TIMEOUT = 2 * 60 * 1000; // 2 minutes in milliseconds
+unsigned long lastTouchTime = 0;
+
 // Forward declarations
 void fetchAndDisplayTrams();
 void displayStation(const char* stationName, const char* url, int startX, int startY);
 bool connectWiFi();
 void displayBatteryLevel();
+void goToDeepSleep();
+void checkForTouch();
 
 bool connectWiFi() {
     const int maxRetries = 3;
@@ -89,6 +96,9 @@ void setup() {
     }
 
     fetchAndDisplayTrams();
+
+    // Initialize last touch time
+    lastTouchTime = millis();
 }
 
 struct Departure {
@@ -307,7 +317,54 @@ void fetchAndDisplayTrams() {
     canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
 }
 
+void checkForTouch() {
+    M5.TP.update();
+    if (M5.TP.available()) {
+        lastTouchTime = millis();
+    }
+}
+
+void goToDeepSleep() {
+    // Display "touch me" message
+    canvas.fillCanvas(0);
+    canvas.setTextSize(8);
+
+    // Center the text
+    int x = 280;
+    int y = 220;
+    canvas.drawString("Touch Me", x, y);
+
+    canvas.pushCanvas(0, 0, UPDATE_MODE_DU4);
+
+    delay(1000); // Show message for 1 second
+
+    // Prepare for deep sleep
+    M5.TP.flush(); // Clear touch buffer (critical!)
+
+    // Configure wake on touch (GPIO 36 for GT911 touch controller)
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, LOW);
+
+    // Go to deep sleep
+    esp_deep_sleep_start();
+    // Device will restart from setup() when touched
+}
+
 void loop() {
-    delay(60000); // Refresh every 60 seconds
-    fetchAndDisplayTrams();
+    // Check for touch events
+    checkForTouch();
+
+    // Check if sleep timeout has been reached
+    if (millis() - lastTouchTime > SLEEP_TIMEOUT) {
+        goToDeepSleep();
+        // Never returns - device wakes and restarts from setup()
+    }
+
+    // Update display every 60 seconds
+    static unsigned long lastUpdate = 0;
+    if (millis() - lastUpdate >= 60000) {
+        fetchAndDisplayTrams();
+        lastUpdate = millis();
+    }
+
+    delay(100); // Small delay to reduce CPU usage
 }
